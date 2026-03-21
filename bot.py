@@ -45,7 +45,7 @@ def get_week_parity() -> str:
     return get_week_parity_for_date(date.today())
 
 
-# Структура расписания с новыми ключами
+# Структура расписания
 SCHEDULE = {
     "numerator": {  # Чётная неделя = Числитель
         0: [  # Понедельник
@@ -136,7 +136,7 @@ SCHEDULE = {
 }
 
 
-# --- Вспомогательные функции для красивого форматирования ---
+# --- Вспомогательные функции для форматирования ---
 def get_day_name(day_num: int) -> str:
     days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
     return days[day_num]
@@ -148,87 +148,61 @@ def get_day_emoji(day_num: int) -> str:
     return emojis[day_num]
 
 
-def format_lesson_card_beautiful(lesson: dict, index: int) -> str:
-    """Форматирует одну пару в виде очень красивой карточки"""
-
-    # Определяем эмодзи для типа занятия
-    type_emojis = {
-        "лекция": "📚",
-        "практика": "💻",
-        "лабораторная": "🔬"
-    }
-    type_emoji = type_emojis.get(lesson.get('type', ''), "📖")
-    type_text = lesson['type'].capitalize() if lesson.get('type') else "Занятие"
-
-    # Обработка преподавателя
-    if not lesson.get('teacher') or lesson['teacher'] == "":
-        teacher_line = "   👤 Преподаватель: не указан"
-    else:
-        teacher_line = f"   👨‍🏫 {lesson['teacher']}"
-
-    # Обработка аудитории
-    if not lesson.get('room') or lesson['room'] == "":
-        room_line = "   📍 Аудитория: не указана"
-    else:
-        room_line = f"   🏛️ Ауд. {lesson['room']}"
-
-    # Создаём красивую карточку с рамкой
-    card = f"""
-╔══════════════════════════════════════╗
-║  {type_emoji} *{index}. {lesson['subject']}*
-║
-║  🕐 *{lesson['time']}*
-║  {teacher_line}
-║  {room_line}
-║  📖 {type_text}
-╚══════════════════════════════════════╝
-"""
-    return card
-
-
-def format_lessons_beautiful(lessons: list) -> str:
-    """Форматирует список пар в красивые карточки"""
+def format_lessons_simple(lessons: list) -> str:
+    """Форматирует список пар в простой текст без рамок"""
     if not lessons:
-        return (
-            "╔══════════════════════════════════════╗\n"
-            "║         🎉 *ВЫХОДНОЙ!* 🎉            ║\n"
-            "║                                      ║\n"
-            "║                                      ║\n"
-            "╚══════════════════════════════════════╝"
-        )
+        return "🎉 Выходной! Нет занятий. Отдыхайте! 🌟"
 
     result = ""
     for i, lesson in enumerate(lessons, 1):
-        result += format_lesson_card_beautiful(lesson, i) + "\n"
-    return result
-
-
-def format_week_day_compact(day_num: int, lessons: list, parity_type: str) -> str:
-    """Форматирует один день для недельного просмотра"""
-    day_emoji = get_day_emoji(day_num)
-    day_name = get_day_name(day_num)
-
-    if not lessons:
-        return f"{day_emoji} *{day_name}*: Выходной 🎉\n"
-
-    result = f"{day_emoji} *{day_name}*:\n"
-    for lesson in lessons:
-        # Определяем эмодзи для типа
+        # Определяем эмодзи для типа занятия
         type_emoji = "📚" if lesson.get('type') == "лекция" else "💻" if lesson.get('type') == "практика" else "🔬"
-        result += f"   {type_emoji} {lesson['time']} — {lesson['subject']}\n"
-        if lesson.get('room'):
-            result += f"      🏛️ ауд. {lesson['room']}\n"
-    result += "\n"
+
+        # Название предмета с номером
+        result += f"\n*{i}. {lesson['subject']}*\n"
+
+        # Время
+        result += f"🕐 {lesson['time']}\n"
+
+        # Преподаватель
+        if lesson.get('teacher') and lesson['teacher'] != "":
+            result += f"👨‍🏫 {lesson['teacher']}\n"
+
+        # Аудитория
+        if lesson.get('room') and lesson['room'] != "":
+            result += f"🏛️ ауд. {lesson['room']}\n"
+
+        # Тип занятия
+        if lesson.get('type') and lesson['type'] != "":
+            result += f"{type_emoji} {lesson['type'].capitalize()}\n"
+
+        result += "─" * 30 + "\n"
+
     return result
 
 
-def get_lesson_type_emoji(lesson_type: str) -> str:
-    types = {
-        "лекция": "📚",
-        "практика": "💻",
-        "лабораторная": "🔬"
-    }
-    return types.get(lesson_type, "📖")
+def format_week_simple(parity: str) -> str:
+    """Форматирует всю неделю в простой текст"""
+    result = ""
+
+    for day_num in range(7):
+        day_name = get_day_name(day_num)
+        day_emoji = get_day_emoji(day_num)
+        lessons = SCHEDULE[parity].get(day_num, [])
+
+        result += f"\n{day_emoji} *{day_name}*\n"
+
+        if lessons:
+            for lesson in lessons:
+                result += f"   🕐 {lesson['time']} — {lesson['subject']}\n"
+                if lesson.get('room') and lesson['room'] != "":
+                    result += f"      🏛️ ауд. {lesson['room']}\n"
+        else:
+            result += "   🎉 Выходной\n"
+
+        result += "\n"
+
+    return result
 
 
 def get_week_type_info(parity: str) -> tuple:
@@ -246,10 +220,7 @@ def get_current_week_info() -> tuple:
 
 
 def get_week_info_for_offset(weeks_offset: int) -> tuple:
-    """
-    Получить информацию о неделе со смещением
-    weeks_offset: 0 - текущая, 1 - следующая, -1 - предыдущая
-    """
+    """Получить информацию о неделе со смещением"""
     target_date = date.today() + timedelta(weeks=weeks_offset)
     parity = get_week_parity_for_date(target_date)
     week_name, week_emoji, parity_ru = get_week_type_info(parity)
@@ -318,9 +289,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, week_name, week_emoji, parity_ru = get_current_week_info()
 
     welcome_text = (
-        f" *Бот-расписание* \n\n"
-        f" *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
-        f" *Нажми на кнопку ниже, чтобы узнать расписание:*"
+        f" *Бот-расписание* 🎓\n\n"
+        f"📅 *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
+        f"👇 *Чтобы узнать расписание:*"
     )
 
     await update.message.reply_text(
@@ -373,8 +344,8 @@ async def show_today(query):
     day_emoji = get_day_emoji(today)
     lessons = SCHEDULE[parity].get(today, [])
 
-    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n\n"
-    response = header + format_lessons_beautiful(lessons)
+    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n"
+    response = header + format_lessons_simple(lessons)
 
     await query.edit_message_text(
         response,
@@ -391,8 +362,8 @@ async def show_tomorrow(query):
     day_emoji = get_day_emoji(tomorrow)
     lessons = SCHEDULE[parity].get(tomorrow, [])
 
-    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n\n"
-    response = header + format_lessons_beautiful(lessons)
+    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n"
+    response = header + format_lessons_simple(lessons)
 
     await query.edit_message_text(
         response,
@@ -406,20 +377,13 @@ async def show_week(query, weeks_offset: int = 0):
     parity, week_name, week_emoji, _, week_label = get_week_info_for_offset(weeks_offset)
 
     if weeks_offset == 0:
-        title = f" *Расписание* ({week_name} {week_emoji} неделя)"
+        title = f"📅 *Расписание* ({week_name} {week_emoji} неделя)"
     elif weeks_offset == 1:
-        title = f" *Расписание на следующую неделю* ({week_name} {week_emoji})"
+        title = f"⏩ *Расписание на следующую неделю* ({week_name} {week_emoji})"
     else:
-        title = f" *Расписание* ({week_label}, {week_name} {week_emoji})"
+        title = f"📅 *Расписание* ({week_label}, {week_name} {week_emoji})"
 
-    response = f"{title}\n\n"
-    response += "╔══════════════════════════════════════╗\n"
-    response += "║         *НЕДЕЛЬНОЕ РАСПИСАНИЕ*      ║\n"
-    response += "╚══════════════════════════════════════╝\n\n"
-
-    for day_num in range(7):
-        lessons = SCHEDULE[parity].get(day_num, [])
-        response += format_week_day_compact(day_num, lessons, week_name)
+    response = title + format_week_simple(parity)
 
     await query.edit_message_text(
         response,
@@ -436,19 +400,13 @@ async def show_current_week(query):
     _, next_week_name, next_week_emoji, next_parity_ru, _ = get_week_info_for_offset(1)
 
     await query.edit_message_text(
-        f" *Информация о неделях*\n\n"
-        f"┌─────────────────────────────────────┐\n"
-        f"│ *Текущая неделя:*                   │\n"
-        f"│   {week_name} {week_emoji} ({parity_ru})\n"
-        f"│                                     │\n"
-        f"│ *Следующая неделя:*                 │\n"
-        f"│   {next_week_name} {next_week_emoji} ({next_parity_ru})\n"
-        f"└─────────────────────────────────────┘\n\n"
-        f" *Пояснение:*\n"
-        f"• *Числитель* () — чётная неделя\n"
-        f"• *Знаменатель* () — нечётная неделя\n\n"
-        f" Расписание автоматически меняется\n"
-        f"   каждую неделю от 2 марта.",
+        f"📅 *Информация о неделях*\n\n"
+        f"📌 *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n"
+        f"⏩ *Следующая неделя:* {next_week_name} {next_week_emoji} ({next_parity_ru})\n\n"
+        f"📖 *Пояснение:*\n"
+        f"• *Числитель* 🧮 — чётная неделя\n"
+        f"• *Знаменатель* 📊 — нечётная неделя\n\n"
+        f"🔄 Расписание автоматически меняется каждую неделю (отсчёт от 2 марта)",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard()
     )
@@ -458,23 +416,18 @@ async def show_help(query):
     """Показать помощь"""
     await query.edit_message_text(
         "📖 *Помощь по боту*\n\n"
-        "┌─────────────────────────────────────┐\n"
-        "│ *Доступные функции:*                │\n"
-        "│                                     │\n"
-        "│ 📅 *Сегодня* — расписание на день   │\n"
-        "│ 📆 *Завтра* — расписание на завтра  │\n"
-        "│ 📊 *Текущая неделя* — вся неделя    │\n"
-        "│ ⏩ *Следующая неделя* — след. неделя│\n"
-        "│ ℹ️ *Инфо о неделе* — четность       │\n"
-        "└─────────────────────────────────────┘\n\n"
-        "💡 *Советы:*\n"
-        "• Нажимай на дни (ПН, ВТ...), чтобы\n"
-        "  посмотреть расписание на конкретный день\n"
-        "• Можно смотреть расписание на\n"
-        "  следующую неделю заранее!\n\n"
-        " *Система недель:*\n"
-        "• Чётная = *Числитель* \n"
-        "• Нечётная = *Знаменатель* ",
+        "*Доступные функции:*\n"
+        "📅 *Сегодня* — расписание на текущий день\n"
+        "📆 *Завтра* — расписание на следующий день\n"
+        "📊 *Текущая неделя* — полное расписание на неделю\n"
+        "⏩ *Следующая неделя* — расписание на следующую неделю\n"
+        "ℹ️ *Инфо о неделе* — информация о четности недели\n\n"
+        "*Советы:*\n"
+        "• Нажимай на дни (ПН, ВТ...), чтобы посмотреть расписание на конкретный день\n"
+        "• Можно смотреть расписание на следующую неделю заранее!\n\n"
+        "*Система недель:*\n"
+        "• Чётная неделя = *Числитель* 🧮\n"
+        "• Нечётная неделя = *Знаменатель* 📊",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard()
     )
@@ -488,13 +441,13 @@ async def show_day(query, day_num: int, weeks_offset: int = 0):
     lessons = SCHEDULE[parity].get(day_num, [])
 
     if weeks_offset == 0:
-        header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)"
+        header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n"
     elif weeks_offset == 1:
-        header = f" {day_emoji} *{day_name}* (след. неделя, {week_name} {week_emoji})"
+        header = f"⏩ {day_emoji} *{day_name}* (следующая неделя, {week_name} {week_emoji})\n"
     else:
-        header = f"{day_emoji} *{day_name}* ({week_label}, {week_name} {week_emoji})"
+        header = f"{day_emoji} *{day_name}* ({week_label}, {week_name} {week_emoji})\n"
 
-    response = f"{header}\n\n" + format_lessons_beautiful(lessons)
+    response = header + format_lessons_simple(lessons)
 
     await query.edit_message_text(
         response,
@@ -518,8 +471,8 @@ async def schedule_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     day_emoji = get_day_emoji(today)
     lessons = SCHEDULE[parity].get(today, [])
 
-    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n\n"
-    response = header + format_lessons_beautiful(lessons)
+    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n"
+    response = header + format_lessons_simple(lessons)
 
     await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
 
@@ -531,22 +484,16 @@ async def schedule_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     day_emoji = get_day_emoji(tomorrow)
     lessons = SCHEDULE[parity].get(tomorrow, [])
 
-    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n\n"
-    response = header + format_lessons_beautiful(lessons)
+    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n"
+    response = header + format_lessons_simple(lessons)
 
     await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
 
 
 async def schedule_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parity, week_name, week_emoji, _ = get_current_week_info()
-    response = f" *Расписание* ({week_name} {week_emoji} неделя)\n\n"
-    response += "╔══════════════════════════════════════╗\n"
-    response += "║         *НЕДЕЛЬНОЕ РАСПИСАНИЕ*      ║\n"
-    response += "╚══════════════════════════════════════╝\n\n"
-
-    for day_num in range(7):
-        lessons = SCHEDULE[parity].get(day_num, [])
-        response += format_week_day_compact(day_num, lessons, week_name)
+    title = f"📅 *Расписание* ({week_name} {week_emoji} неделя)\n"
+    response = title + format_week_simple(parity)
 
     await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
 
@@ -583,8 +530,8 @@ async def schedule_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     day_emoji = get_day_emoji(day_num)
     lessons = SCHEDULE[parity].get(day_num, [])
 
-    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n\n"
-    response = header + format_lessons_beautiful(lessons)
+    header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)\n"
+    response = header + format_lessons_simple(lessons)
 
     await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
 
@@ -592,8 +539,8 @@ async def schedule_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def current_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, week_name, week_emoji, parity_ru = get_current_week_info()
     await update.message.reply_text(
-        f" *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
-        f"Расписание автоматически меняется каждую неделю.",
+        f"📅 *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
+        f"🔄 Расписание автоматически меняется каждую неделю.",
         parse_mode="Markdown",
         reply_markup=get_days_keyboard(0)
     )
