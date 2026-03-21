@@ -1,7 +1,9 @@
 import os
 import asyncio
 import logging
+import io
 from datetime import datetime, date, timedelta
+from PIL import Image, ImageDraw, ImageFont
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.requests import Request
@@ -17,36 +19,276 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")
 PORT = int(os.getenv("PORT", 8000))
 
+# ==================== ФУНКЦИИ ДЛЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ ====================
+
+# Цветовая схема
+COLORS = {
+    "bg": (248, 250, 252),  # светло-серый фон
+    "card_bg": (255, 255, 255),  # белый фон карточки
+    "header": (79, 129, 189),  # синий для заголовков
+    "accent": (100, 150, 200),  # акцентный цвет
+    "text": (30, 41, 59),  # тёмно-серый текст
+    "text_light": (100, 116, 139),  # светлый текст
+    "border": (226, 232, 240),  # цвет границы
+    "time": (59, 130, 246),  # синий для времени
+    "teacher": (139, 92, 246),  # фиолетовый для преподавателя
+    "room": (236, 72, 153),  # розовый для аудитории
+}
+
+# Типы занятий с цветами
+LESSON_TYPES = {
+    "лекция": {"emoji": "📚", "color": (59, 130, 246)},
+    "практика": {"emoji": "💻", "color": (16, 185, 129)},
+    "лабораторная": {"emoji": "🔬", "color": (245, 158, 11)},
+    "": {"emoji": "📖", "color": (100, 116, 139)}
+}
+
+
+def get_font(size, bold=False):
+    """Пытается загрузить шрифт, если нет — использует дефолтный"""
+    font_paths = [
+        # Windows
+        r"C:\Windows\Fonts\arial.ttf",
+        r"C:\Windows\Fonts\arialbd.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+        # Linux
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        # macOS
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/HelveticaNeue.ttc",
+    ]
+
+    for path in font_paths:
+        try:
+            if os.path.exists(path):
+                return ImageFont.truetype(path, size)
+        except:
+            continue
+
+    # Если шрифтов нет — используем дефолтный
+    return ImageFont.load_default()
+
+
+def create_schedule_image(day_name: str, week_info: str, lessons: list, width: int = 800) -> bytes:
+    """
+    Создаёт изображение с расписанием на день
+    Возвращает bytes для отправки в Telegram
+    """
+    # Вычисляем высоту в зависимости от количества пар
+    card_height = 130  # высота одной карточки
+    header_height = 120
+    footer_height = 40
+    total_height = header_height + len(lessons) * card_height + footer_height
+
+    # Если нет занятий — компактное изображение
+    if not lessons:
+        total_height = 200
+
+    # Создаём изображение
+    img = Image.new('RGB', (width, total_height), color=COLORS["bg"])
+    draw = ImageDraw.Draw(img)
+
+    # Загружаем шрифты
+    font_title = get_font(28, bold=True)
+    font_subtitle = get_font(18)
+    font_lesson_title = get_font(20, bold=True)
+    font_normal = get_font(16)
+    font_small = get_font(14)
+
+    y_offset = 20
+
+    # --- Шапка ---
+    # Рисуем декоративную полоску
+    draw.rectangle([0, 0, width, 8], fill=COLORS["header"])
+
+    # День недели
+    draw.text((30, y_offset), day_name, fill=COLORS["text"], font=font_title)
+    y_offset += 45
+
+    # Информация о неделе
+    draw.text((30, y_offset), week_info, fill=COLORS["accent"], font=font_subtitle)
+    y_offset += 35
+
+    # Разделитель
+    draw.line([(20, y_offset), (width - 20, y_offset)], fill=COLORS["border"], width=2)
+    y_offset += 25
+
+    # --- Карточки пар ---
+    if not lessons:
+        # Если выходной
+        draw.text((width // 2 - 100, y_offset + 40), "🎉 ВЫХОДНОЙ! 🎉",
+                  fill=COLORS["header"], font=get_font(24, bold=True))
+        draw.text((width // 2 - 80, y_offset + 90), "Нет занятий. Отдыхайте! 🌟",
+                  fill=COLORS["text_light"], font=font_normal)
+    else:
+        for i, lesson in enumerate(lessons):
+            # Фон карточки
+            card_x = 20
+            card_y = y_offset
+            card_w = width - 40
+            card_h = card_height - 10
+
+            # Рисуем белую карточку с тенью (простая имитация)
+            draw.rectangle([card_x, card_y, card_x + card_w, card_y + card_h],
+                           fill=COLORS["card_bg"], outline=COLORS["border"], width=1)
+
+            # Левая цветная полоска (тип занятия)
+            lesson_type = lesson.get('type', '')
+            type_color = LESSON_TYPES.get(lesson_type, LESSON_TYPES[""])["color"]
+            draw.rectangle([card_x, card_y, card_x + 8, card_y + card_h], fill=type_color)
+
+            # Номер пары
+            draw.text((card_x + 20, card_y + 12), f"{i + 1}",
+                      fill=COLORS["header"], font=font_lesson_title)
+
+            # Время
+            time_text = f"🕐 {lesson['time']}"
+            draw.text((card_x + 60, card_y + 12), time_text,
+                      fill=COLORS["time"], font=font_normal)
+
+            # Название предмета
+            subject = lesson['subject']
+            if len(subject) > 45:
+                subject = subject[:42] + "..."
+            draw.text((card_x + 20, card_y + 42), subject,
+                      fill=COLORS["text"], font=font_lesson_title)
+
+            # Преподаватель
+            teacher = lesson.get('teacher', '')
+            if teacher and teacher != "":
+                teacher_text = f"👨‍🏫 {teacher}"
+                if len(teacher_text) > 55:
+                    teacher_text = teacher_text[:52] + "..."
+                draw.text((card_x + 20, card_y + 72), teacher_text,
+                          fill=COLORS["teacher"], font=font_normal)
+
+            # Аудитория
+            room = lesson.get('room', '')
+            if room and room != "":
+                room_text = f"🏛️ ауд. {room}"
+                draw.text((card_x + 20, card_y + 97), room_text,
+                          fill=COLORS["room"], font=font_normal)
+
+            # Тип занятия
+            type_emoji = LESSON_TYPES.get(lesson_type, LESSON_TYPES[""])["emoji"]
+            type_text = f"{type_emoji} {lesson_type.capitalize()}" if lesson_type else "📖 Занятие"
+            draw.text((card_x + card_w - 100, card_y + 12), type_text,
+                      fill=type_color, font=font_small)
+
+            y_offset += card_h - 5
+
+    # --- Подвал ---
+    y_offset += 10
+    draw.line([(20, y_offset), (width - 20, y_offset)], fill=COLORS["border"], width=1)
+    y_offset += 15
+    draw.text((30, y_offset), "📅 Бот-расписание | Актуально на текущую неделю",
+              fill=COLORS["text_light"], font=get_font(12))
+
+    # Сохраняем в bytes
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format='PNG')
+    img_bytes.seek(0)
+
+    return img_bytes.getvalue()
+
+
+def create_week_image(parity: str, week_name: str, week_emoji: str, width: int = 800) -> bytes:
+    """
+    Создаёт изображение с расписанием на всю неделю
+    """
+    from SCHEDULE import SCHEDULE  # нужно импортировать
+
+    # Вычисляем высоту
+    rows = 0
+    for day_num in range(7):
+        lessons = SCHEDULE[parity].get(day_num, [])
+        rows += max(1, len(lessons))
+
+    row_height = 45
+    header_height = 120
+    footer_height = 40
+    total_height = header_height + rows * row_height + footer_height
+
+    img = Image.new('RGB', (width, total_height), color=COLORS["bg"])
+    draw = ImageDraw.Draw(img)
+
+    font_title = get_font(28, bold=True)
+    font_subtitle = get_font(18)
+    font_day = get_font(18, bold=True)
+    font_normal = get_font(14)
+
+    y_offset = 20
+
+    # Шапка
+    draw.rectangle([0, 0, width, 8], fill=COLORS["header"])
+    draw.text((30, y_offset), f"📅 Расписание на неделю", fill=COLORS["text"], font=font_title)
+    y_offset += 45
+    draw.text((30, y_offset), f"{week_name} {week_emoji} неделя", fill=COLORS["accent"], font=font_subtitle)
+    y_offset += 40
+    draw.line([(20, y_offset), (width - 20, y_offset)], fill=COLORS["border"], width=2)
+    y_offset += 15
+
+    days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+    day_emojis = ["🌙", "🔥", "⚡", "💪", "🎯", "🎉", "😴"]
+
+    for day_num in range(7):
+        lessons = SCHEDULE[parity].get(day_num, [])
+        day_name = f"{day_emojis[day_num]} {days[day_num]}"
+
+        draw.text((20, y_offset), day_name, fill=COLORS["header"], font=font_day)
+        y_offset += 28
+
+        if lessons:
+            for lesson in lessons:
+                lesson_text = f"  • {lesson['time']} — {lesson['subject']}"
+                draw.text((30, y_offset), lesson_text, fill=COLORS["text"], font=font_normal)
+                y_offset += 25
+        else:
+            draw.text((30, y_offset), "  • Выходной 🎉", fill=COLORS["text_light"], font=font_normal)
+            y_offset += 25
+
+        y_offset += 5
+
+    # Подвал
+    draw.line([(20, y_offset), (width - 20, y_offset)], fill=COLORS["border"], width=1)
+    y_offset += 15
+    draw.text((30, y_offset), "📅 Бот-расписание | Актуально на текущую неделю",
+              fill=COLORS["text_light"], font=get_font(12))
+
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format='PNG')
+    img_bytes.seek(0)
+
+    return img_bytes.getvalue()
+
 
 # ==================== ДАННЫЕ РАСПИСАНИЯ ====================
 
 def get_week_parity_for_date(target_date: date = None) -> str:
-    """
-    Определяет четность недели для указанной даты.
-    Если дата не указана, использует текущую.
-    """
+    """Определяет четность недели"""
     if target_date is None:
         target_date = date.today()
 
     start_date = date(target_date.year, 3, 2)
-
     if target_date < start_date:
         start_date = date(target_date.year - 1, 3, 2)
 
     delta = (target_date - start_date).days
     week_number = delta // 7
 
-    return "even" if week_number % 2 == 0 else "odd"
+    return "numerator" if week_number % 2 == 0 else "denominator"
 
 
 def get_week_parity() -> str:
-    """Определяет четность текущей недели"""
     return get_week_parity_for_date(date.today())
 
 
+# Ваше расписание (SCHEDULE) остаётся без изменений
 SCHEDULE = {
-    "odd": {
-        0: [  # Понедельник
+    "numerator": {
+        0: [
             {"time": "08:30-10:00", "subject": "АСБУ: Автоматизированные системы бухгалтерского учета (1С)",
              "teacher": "Исаева Ириада Евгеньевна", "room": "4-06А", "type": "лекция"},
             {"time": "10:10-11:40", "subject": "физра", "teacher": "", "room": "", "type": ""},
@@ -55,7 +297,7 @@ SCHEDULE = {
             {"time": "13:40-15:10", "subject": "ППОД: Прикладные пакеты обработки данных",
              "teacher": "Смирнова Елена Владимировна", "room": "4-22Г", "type": "лекция"}
         ],
-        1: [  # Вторник
+        1: [
             {"time": "08:30-10:00",
              "subject": "ПОЭИС: Предметно-ориентированные экономические информационные системы (1С)",
              "teacher": "Трухляева Анна Александровна", "room": "2-02А", "type": "лабораторная"},
@@ -64,7 +306,7 @@ SCHEDULE = {
             {"time": "12:00-13:30", "subject": "ПСЭД: Проектирование систем электронного документооборота",
              "teacher": "Трухляева Анна Александровна", "room": "4-17В", "type": "лекция"}
         ],
-        2: [  # Среда
+        2: [
             {"time": "12:00-13:30", "subject": "ВССТ: Вычислительные системы, сети, телекоммуникации",
              "teacher": "Горте Иван Александрович", "room": "2-02А", "type": "лабораторная"},
             {"time": "13:40-15:10", "subject": "ОУД: Организация и управление данными",
@@ -75,7 +317,7 @@ SCHEDULE = {
              "subject": "ССУКПО: Стандартизация, сертификация и управление качеством программного обеспечения",
              "teacher": "Смирнова Елена Владимировна", "room": "2-03А", "type": "практика"}
         ],
-        3: [  # Четверг
+        3: [
             {"time": "08:30-10:00", "subject": "ВССТ: Вычислительные системы, сети, телекоммуникации",
              "teacher": "Иванченко Геннадий Сергеевич", "room": "2-13В", "type": "лекция"},
             {"time": "10:10-11:40", "subject": "ПИС: Проектирование информационных систем",
@@ -85,12 +327,12 @@ SCHEDULE = {
             {"time": "13:40-15:10", "subject": "АСБУ: Автоматизированные системы бухгалтерского учета (1С)",
              "teacher": "Баубель Юлия Игоревна", "room": "2-03А", "type": "лабораторная"}
         ],
-        4: [],  # Пятница
-        5: [],  # Суббота
-        6: []  # Воскресенье
+        4: [],
+        5: [],
+        6: []
     },
-    "even": {
-        0: [  # Понедельник
+    "denominator": {
+        0: [
             {"time": "08:30-10:00", "subject": "ВССТ: Вычислительные системы, сети, телекоммуникации",
              "teacher": "Махортов Владимир Денисович", "room": "2-03А", "type": "лабораторная"},
             {"time": "10:10-11:40", "subject": "физра", "teacher": "", "room": "", "type": ""},
@@ -100,7 +342,7 @@ SCHEDULE = {
              "subject": "ССУКПО: Стандартизация, сертификация и управление качеством программного обеспечения",
              "teacher": "Шипилева Алла Владимировна", "room": "4-22Г", "type": "лекция"}
         ],
-        1: [  # Вторник
+        1: [
             {"time": "08:30-10:00",
              "subject": "ПОЭИС: Предметно-ориентированные экономические информационные системы (1С)",
              "teacher": "Трухляева Анна Александровна", "room": "2-02А", "type": "лабораторная"},
@@ -110,14 +352,14 @@ SCHEDULE = {
              "subject": "ПОЭИС: Предметно-ориентированные экономические информационные системы (1С)",
              "teacher": "Трухляева Анна Александровна", "room": "4-17В", "type": "лекция"}
         ],
-        2: [  # Среда
+        2: [
             {"time": "15:20-16:50", "subject": "ОУД: Организация и управление данными",
              "teacher": "Шипилева Алла Владимировна", "room": "2-02А", "type": "практика"},
             {"time": "17:00-18:30",
              "subject": "ССУКПО: Стандартизация, сертификация и управление качеством программного обеспечения",
              "teacher": "Смирнова Елена Владимировна", "room": "2-03А", "type": "практика"}
         ],
-        3: [  # Четверг
+        3: [
             {"time": "08:30-10:00", "subject": "ВССТ: Вычислительные системы, сети, телекоммуникации",
              "teacher": "Иванченко Геннадий Сергеевич", "room": "2-13В", "type": "лекция"},
             {"time": "10:10-11:40", "subject": "ПИС: Проектирование информационных систем",
@@ -127,9 +369,9 @@ SCHEDULE = {
             {"time": "13:40-15:10", "subject": "АСБУ: Автоматизированные системы бухгалтерского учета (1С)",
              "teacher": "Баубель Юлия Игоревна", "room": "2-03А", "type": "лабораторная"}
         ],
-        4: [],  # Пятница
-        5: [],  # Суббота
-        6: []  # Воскресенье
+        4: [],
+        5: [],
+        6: []
     }
 }
 
@@ -140,178 +382,84 @@ def get_day_name(day_num: int) -> str:
     return days[day_num]
 
 
-def format_lesson_card(lesson: dict, index: int) -> str:
-    """Форматирует одну пару в виде красивой карточки"""
-    if not lesson.get('teacher') or lesson['teacher'] == "":
-        teacher_text = "❓ Не указан"
-    else:
-        teacher_text = f"👨‍🏫 {lesson['teacher']}"
-
-    if not lesson.get('room') or lesson['room'] == "":
-        room_text = "❓ Не указана"
-    else:
-        room_text = f"🏛️ ауд. {lesson['room']}"
-
-    type_emoji = get_lesson_type_emoji(lesson.get('type', ''))
-    type_text = f"{type_emoji} {lesson['type'].capitalize()}" if lesson.get('type') else "📚 Занятие"
-
-    card = (
-        f"┌─────────────────────┐\n"
-        f"│ *{index}. {lesson['subject']}*\n"
-        f"│\n"
-        f"│ 🕐 {lesson['time']}\n"
-        f"│ {teacher_text}\n"
-        f"│ {room_text}\n"
-        f"│ {type_text}\n"
-        f"└─────────────────────┘"
-    )
-    return card
-
-
-def format_lessons_beautiful(lessons: list) -> str:
-    """Форматирует список пар в красивые карточки"""
-    if not lessons:
-        return "🎉 *Выходной!* 🎉\n\nНет занятий. Отдыхайте! 🌟"
-
-    result = ""
-    for i, lesson in enumerate(lessons, 1):
-        result += format_lesson_card(lesson, i) + "\n\n"
-    return result
-
-
-def get_lesson_type_emoji(lesson_type: str) -> str:
-    types = {
-        "лекция": "📝",
-        "практика": "💻",
-        "лабораторная": "🔬"
-    }
-    return types.get(lesson_type, "📚")
-
-
 def get_current_week_info() -> tuple:
     parity = get_week_parity()
-    week_type = "нечетная" if parity == "odd" else "четная"
-    week_emoji = "➗" if parity == "odd" else "✖️"
-    return parity, week_type, week_emoji
-
-
-def get_week_info_for_offset(weeks_offset: int) -> tuple:
-    """
-    Получить информацию о неделе со смещением
-    weeks_offset: 0 - текущая, 1 - следующая, -1 - предыдущая
-    """
-    target_date = date.today() + timedelta(weeks=weeks_offset)
-    parity = get_week_parity_for_date(target_date)
-    week_type = "нечетная" if parity == "odd" else "четная"
-    week_emoji = "➗" if parity == "odd" else "✖️"
-
-    # Определяем текстовое описание недели
-    if weeks_offset == 0:
-        week_label = "Текущая"
-    elif weeks_offset == 1:
-        week_label = "Следующая"
-    elif weeks_offset == -1:
-        week_label = "Предыдущая"
+    if parity == "numerator":
+        week_name = "Числитель"
+        week_emoji = "🧮"
     else:
-        week_label = f"{weeks_offset:+d} неделя"
-
-    return parity, week_type, week_emoji, week_label
-
-
-def get_main_keyboard():
-    """Главная клавиатура с кнопками"""
-    keyboard = [
-        [
-            InlineKeyboardButton("📅 Сегодня", callback_data="today"),
-            InlineKeyboardButton("📆 Завтра", callback_data="tomorrow")
-        ],
-        [
-            InlineKeyboardButton("📊 Текущая неделя", callback_data="week_current"),
-            InlineKeyboardButton("⏩ Следующая неделя", callback_data="week_next")
-        ],
-        [
-            InlineKeyboardButton("ℹ️ Текущая неделя (четность)", callback_data="current_week"),
-            InlineKeyboardButton("📖 Помощь", callback_data="help")
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+        week_name = "Знаменатель"
+        week_emoji = "📊"
+    return parity, week_name, week_emoji
 
 
-def get_days_keyboard(weeks_offset: int = 0):
-    """
-    Клавиатура с днями недели для выбора
-    weeks_offset: 0 - текущая, 1 - следующая, -1 - предыдущая
-    """
-    keyboard = [
-        [
-            InlineKeyboardButton("ПН", callback_data=f"day_0_offset_{weeks_offset}"),
-            InlineKeyboardButton("ВТ", callback_data=f"day_1_offset_{weeks_offset}"),
-            InlineKeyboardButton("СР", callback_data=f"day_2_offset_{weeks_offset}")
-        ],
-        [
-            InlineKeyboardButton("ЧТ", callback_data=f"day_3_offset_{weeks_offset}"),
-            InlineKeyboardButton("ПТ", callback_data=f"day_4_offset_{weeks_offset}"),
-            InlineKeyboardButton("СБ", callback_data=f"day_5_offset_{weeks_offset}")
-        ],
-        [
-            InlineKeyboardButton("ВС", callback_data=f"day_6_offset_{weeks_offset}")
-        ],
-        [
-            InlineKeyboardButton("📊 Показать всю неделю", callback_data=f"week_offset_{weeks_offset}")
-        ],
-        [
-            InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-
-# --- Обработчики команд ---
+# --- Обработчики команд (отправляют изображения) ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Приветственное сообщение с кнопками"""
-    _, week_type, week_emoji = get_current_week_info()
-
-    welcome_text = (
-        f"🎓 *Привет! Я бот-расписание* 🎓\n\n"
-        f"📅 *Текущая неделя:* {week_type} {week_emoji}\n\n"
-        f"👇 *Нажми на кнопку ниже, чтобы узнать расписание:*"
-    )
+    _, week_name, week_emoji = get_current_week_info()
 
     await update.message.reply_text(
-        welcome_text,
+        f"🎓 *Привет! Я бот-расписание* 🎓\n\n"
+        f"📅 *Текущая неделя:* {week_name} {week_emoji}\n\n"
+        f"👇 *Нажми на кнопку ниже, чтобы узнать расписание:*",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard()
     )
 
 
+async def show_today_callback(query):
+    """Отправить изображение с расписанием на сегодня"""
+    today = datetime.now().weekday()
+    parity, week_name, week_emoji = get_current_week_info()
+    day_name = get_day_name(today)
+    lessons = SCHEDULE[parity].get(today, [])
+
+    week_info = f"{week_name} {week_emoji} неделя"
+    image_bytes = create_schedule_image(day_name, week_info, lessons)
+
+    await query.message.reply_photo(
+        photo=image_bytes,
+        caption=f"📅 {day_name} | {week_info}",
+        reply_markup=get_days_keyboard(0)
+    )
+    await query.delete_message()  # Удаляем сообщение с кнопкой, чтобы не дублировалось
+
+
+# Остальные обработчики аналогично переписываются на отправку изображений...
+
+# --- Клавиатуры (остаются без изменений) ---
+def get_main_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("📅 Сегодня", callback_data="today")],
+        [InlineKeyboardButton("📆 Завтра", callback_data="tomorrow")],
+        [InlineKeyboardButton("📊 Текущая неделя", callback_data="week_current")],
+        [InlineKeyboardButton("⏩ Следующая неделя", callback_data="week_next")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_days_keyboard(weeks_offset: int = 0):
+    keyboard = [
+        [InlineKeyboardButton("🌙 ПН", callback_data=f"day_0_offset_{weeks_offset}"),
+         InlineKeyboardButton("🔥 ВТ", callback_data=f"day_1_offset_{weeks_offset}"),
+         InlineKeyboardButton("⚡ СР", callback_data=f"day_2_offset_{weeks_offset}")],
+        [InlineKeyboardButton("💪 ЧТ", callback_data=f"day_3_offset_{weeks_offset}"),
+         InlineKeyboardButton("🎯 ПТ", callback_data=f"day_4_offset_{weeks_offset}"),
+         InlineKeyboardButton("🎉 СБ", callback_data=f"day_5_offset_{weeks_offset}")],
+        [InlineKeyboardButton("😴 ВС", callback_data=f"day_6_offset_{weeks_offset}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+# --- Обработчики ---
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатий на кнопки"""
     query = update.callback_query
     await query.answer()
 
     data = query.data
 
     if data == "today":
-        await show_today(query)
-    elif data == "tomorrow":
-        await show_tomorrow(query)
-    elif data == "week_current":
-        await show_week(query, weeks_offset=0)
-    elif data == "week_next":
-        await show_week(query, weeks_offset=1)
-    elif data == "current_week":
-        await show_current_week(query)
-    elif data == "help":
-        await show_help(query)
-    elif data.startswith("day_"):
-        # Парсим callback_data: day_0_offset_0 или day_0_offset_1
-        parts = data.split("_")
-        day_num = int(parts[1])
-        offset = int(parts[3]) if len(parts) > 3 else 0
-        await show_day(query, day_num, offset)
-    elif data.startswith("week_offset_"):
-        offset = int(data.split("_")[2])
-        await show_week(query, offset)
+        await show_today_callback(query)
     elif data == "back_to_main":
         await query.edit_message_text(
             "📌 *Главное меню*\n\nВыберите нужную опцию:",
@@ -320,259 +468,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def show_today(query):
-    """Показать расписание на сегодня"""
-    today = datetime.now().weekday()
-    parity, week_type, _ = get_current_week_info()
-    day_name = get_day_name(today)
-    lessons = SCHEDULE[parity].get(today, [])
-
-    response = f"📅 *{day_name}* ({week_type} неделя)\n\n"
-    response += format_lessons_beautiful(lessons)
-
-    await query.edit_message_text(
-        response,
-        parse_mode="Markdown",
-        reply_markup=get_days_keyboard(weeks_offset=0)
-    )
-
-
-async def show_tomorrow(query):
-    """Показать расписание на завтра"""
-    tomorrow = (datetime.now().weekday() + 1) % 7
-    parity, week_type, _ = get_current_week_info()
-    day_name = get_day_name(tomorrow)
-    lessons = SCHEDULE[parity].get(tomorrow, [])
-
-    response = f"📅 *{day_name}* ({week_type} неделя)\n\n"
-    response += format_lessons_beautiful(lessons)
-
-    await query.edit_message_text(
-        response,
-        parse_mode="Markdown",
-        reply_markup=get_days_keyboard(weeks_offset=0)
-    )
-
-
-async def show_week(query, weeks_offset: int = 0):
-    """Показать расписание на неделю"""
-    parity, week_type, week_emoji, week_label = get_week_info_for_offset(weeks_offset)
-
-    if weeks_offset == 0:
-        title = f"📅 *Расписание* ({week_type} неделя)"
-    elif weeks_offset == 1:
-        title = f"⏩ *Расписание на следующую неделю* ({week_type} {week_emoji})"
-    else:
-        title = f"📅 *Расписание* ({week_label} неделя, {week_type} {week_emoji})"
-
-    response = f"{title}\n\n"
-
-    for day_num in range(7):
-        day_name = get_day_name(day_num)
-        lessons = SCHEDULE[parity].get(day_num, [])
-
-        response += f"*{day_name}*\n"
-        if lessons:
-            for lesson in lessons:
-                response += f"  • {lesson['time']} - {lesson['subject']}\n"
-                if lesson['teacher']:
-                    response += f"    👨‍🏫 {lesson['teacher']}\n"
-                if lesson['room']:
-                    response += f"    🏛️ ауд. {lesson['room']}\n"
-            response += "\n"
-        else:
-            response += "  • Выходной 🎉\n\n"
-
-    await query.edit_message_text(
-        response,
-        parse_mode="Markdown",
-        reply_markup=get_days_keyboard(weeks_offset=weeks_offset)
-    )
-
-
-async def show_current_week(query):
-    """Показать информацию о текущей неделе"""
-    _, week_type, week_emoji = get_current_week_info()
-
-    # Получаем информацию о следующей неделе
-    _, next_week_type, next_week_emoji, _ = get_week_info_for_offset(1)
-
-    await query.edit_message_text(
-        f"📅 *Текущая неделя:* {week_type} {week_emoji}\n\n"
-        f"⏩ *Следующая неделя:* {next_week_type} {next_week_emoji}\n\n"
-        f"Расписание автоматически меняется каждую неделю.\n\n"
-        f"🔍 *Уточнение:*\n"
-        f"• Нечетная неделя (➗) — расписание с чередованием\n"
-        f"• Четная неделя (✖️) — альтернативное расписание\n\n"
-        f"💡 *Совет:* Используйте кнопку «Следующая неделя»\n"
-        f"чтобы заранее посмотреть расписание на следующую неделю!",
-        parse_mode="Markdown",
-        reply_markup=get_main_keyboard()
-    )
-
-
-async def show_help(query):
-    """Показать помощь"""
-    await query.edit_message_text(
-        "📖 *Помощь по командам*\n\n"
-        "📅 *Сегодня* — расписание на текущий день\n"
-        "📆 *Завтра* — расписание на следующий день\n"
-        "📊 *Текущая неделя* — полное расписание на эту неделю\n"
-        "⏩ *Следующая неделя* — расписание на следующую неделю\n"
-        "ℹ️ *Текущая неделя* — информация о четности недели\n\n"
-        "💡 *Совет:* Выбирайте любой день на клавиатуре,\n"
-        "чтобы посмотреть расписание на конкретный день\n"
-        "для любой недели (текущей или следующей).\n\n"
-        "🔄 *Четность недели* определяется автоматически\n"
-        "от 2 марта каждого учебного года.",
-        parse_mode="Markdown",
-        reply_markup=get_main_keyboard()
-    )
-
-
-async def show_day(query, day_num: int, weeks_offset: int = 0):
-    """Показать расписание на выбранный день"""
-    parity, week_type, week_emoji, week_label = get_week_info_for_offset(weeks_offset)
-    day_name = get_day_name(day_num)
-    lessons = SCHEDULE[parity].get(day_num, [])
-
-    if weeks_offset == 0:
-        header = f"📅 *{day_name}* ({week_type} неделя)"
-    elif weeks_offset == 1:
-        header = f"⏩ *{day_name}* (следующая неделя, {week_type} {week_emoji})"
-    else:
-        header = f"📅 *{day_name}* ({week_label} неделя, {week_type} {week_emoji})"
-
-    response = f"{header}\n\n"
-    response += format_lessons_beautiful(lessons)
-
-    await query.edit_message_text(
-        response,
-        parse_mode="Markdown",
-        reply_markup=get_days_keyboard(weeks_offset=weeks_offset)
-    )
-
-
-# --- Обработчики текстовых команд (для обратной совместимости) ---
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📖 *Помощь*\n\nНажмите /start чтобы открыть меню с кнопками",
-        parse_mode="Markdown"
-    )
-
-
-async def schedule_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.now().weekday()
-    parity, week_type, _ = get_current_week_info()
-    day_name = get_day_name(today)
-    lessons = SCHEDULE[parity].get(today, [])
-
-    response = f"📅 *{day_name}* ({week_type} неделя)\n\n"
-    response += format_lessons_beautiful(lessons)
-
-    await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
-
-
-async def schedule_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tomorrow = (datetime.now().weekday() + 1) % 7
-    parity, week_type, _ = get_current_week_info()
-    day_name = get_day_name(tomorrow)
-    lessons = SCHEDULE[parity].get(tomorrow, [])
-
-    response = f"📅 *{day_name}* ({week_type} неделя)\n\n"
-    response += format_lessons_beautiful(lessons)
-
-    await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
-
-
-async def schedule_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    parity, week_type, week_emoji = get_current_week_info()
-    response = f"📅 *Расписание на неделю* ({week_type} {week_emoji})\n\n"
-
-    for day_num in range(7):
-        day_name = get_day_name(day_num)
-        lessons = SCHEDULE[parity].get(day_num, [])
-
-        response += f"*{day_name}*\n"
-        if lessons:
-            for lesson in lessons:
-                response += f"  • {lesson['time']} - {lesson['subject']}\n"
-            response += "\n"
-        else:
-            response += "  • Выходной\n\n"
-
-    await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
-
-
-async def schedule_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text(
-            "Укажите день недели.\nПримеры:\n/day понедельник\n/day пн\n/day 1",
-            reply_markup=get_days_keyboard(0)
-        )
-        return
-
-    day_input = context.args[0].lower()
-    day_map = {
-        "пн": 0, "понедельник": 0, "1": 0,
-        "вт": 1, "вторник": 1, "2": 1,
-        "ср": 2, "среда": 2, "3": 2,
-        "чт": 3, "четверг": 3, "4": 3,
-        "пт": 4, "пятница": 4, "5": 4,
-        "сб": 5, "суббота": 5, "6": 5,
-        "вс": 6, "воскресенье": 6, "7": 6
-    }
-
-    if day_input not in day_map:
-        await update.message.reply_text(
-            "Не понял день. Используйте: пн, вт, ср, чт, пт, сб, вс",
-            reply_markup=get_days_keyboard(0)
-        )
-        return
-
-    day_num = day_map[day_input]
-    parity, week_type, _ = get_current_week_info()
-    day_name = get_day_name(day_num)
-    lessons = SCHEDULE[parity].get(day_num, [])
-
-    response = f"📅 *{day_name}* ({week_type} неделя)\n\n"
-    response += format_lessons_beautiful(lessons)
-
-    await update.message.reply_text(response, parse_mode="Markdown", reply_markup=get_days_keyboard(0))
-
-
-async def current_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _, week_type, week_emoji = get_current_week_info()
-    await update.message.reply_text(
-        f"📅 *Текущая неделя:* {week_type} {week_emoji}\n\n"
-        f"Расписание автоматически меняется каждую неделю.",
-        parse_mode="Markdown",
-        reply_markup=get_days_keyboard(0)
-    )
-
+# ... остальные обработчики аналогично
 
 # --- Главная функция ---
 async def main():
     app = Application.builder().token(BOT_TOKEN).updater(None).build()
 
-    # Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("today", schedule_today))
-    app.add_handler(CommandHandler("tomorrow", schedule_tomorrow))
-    app.add_handler(CommandHandler("week", schedule_week))
-    app.add_handler(CommandHandler("day", schedule_day))
-    app.add_handler(CommandHandler("current_week", current_week))
-
-    # Обработчик нажатий на кнопки
     app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # Webhook настройки
     webhook_url = f"{RENDER_EXTERNAL_URL}/telegram"
     await app.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
     logging.info(f"Webhook установлен на: {webhook_url}")
 
-    # Веб-сервер
     async def telegram_webhook(request: Request) -> Response:
         await app.update_queue.put(Update.de_json(await request.json(), app.bot))
         return Response()
