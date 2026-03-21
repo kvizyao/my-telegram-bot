@@ -144,7 +144,7 @@ def get_day_name(day_num: int) -> str:
 
 def get_day_emoji(day_num: int) -> str:
     """Возвращает эмодзи для дня недели"""
-    emojis = ["🌙", "🔥", "⚡", "💪", "🎯", "🎉", "😴"]
+    emojis = ["🔥", "🔥", "🔥", "🔥", "😴", "😴", "😴"]
     return emojis[day_num]
 
 
@@ -193,7 +193,7 @@ def format_lessons_beautiful(lessons: list) -> str:
             "╔══════════════════════════════════════╗\n"
             "║         🎉 *ВЫХОДНОЙ!* 🎉            ║\n"
             "║                                      ║\n"
-            "║     Нет занятий. Отдыхайте! 🌟       ║\n"
+            "║                                      ║\n"
             "╚══════════════════════════════════════╝"
         )
 
@@ -290,14 +290,14 @@ def get_days_keyboard(weeks_offset: int = 0):
     """Клавиатура с днями недели для выбора"""
     keyboard = [
         [
-            InlineKeyboardButton("🌙 ПН", callback_data=f"day_0_offset_{weeks_offset}"),
+            InlineKeyboardButton("🔥 ПН", callback_data=f"day_0_offset_{weeks_offset}"),
             InlineKeyboardButton("🔥 ВТ", callback_data=f"day_1_offset_{weeks_offset}"),
-            InlineKeyboardButton("⚡ СР", callback_data=f"day_2_offset_{weeks_offset}")
+            InlineKeyboardButton("🔥 СР", callback_data=f"day_2_offset_{weeks_offset}")
         ],
         [
-            InlineKeyboardButton("💪 ЧТ", callback_data=f"day_3_offset_{weeks_offset}"),
-            InlineKeyboardButton("🎯 ПТ", callback_data=f"day_4_offset_{weeks_offset}"),
-            InlineKeyboardButton("🎉 СБ", callback_data=f"day_5_offset_{weeks_offset}")
+            InlineKeyboardButton("🔥 ЧТ", callback_data=f"day_3_offset_{weeks_offset}"),
+            InlineKeyboardButton("😴 ПТ", callback_data=f"day_4_offset_{weeks_offset}"),
+            InlineKeyboardButton("😴 СБ", callback_data=f"day_5_offset_{weeks_offset}")
         ],
         [
             InlineKeyboardButton("😴 ВС", callback_data=f"day_6_offset_{weeks_offset}")
@@ -318,9 +318,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, week_name, week_emoji, parity_ru = get_current_week_info()
 
     welcome_text = (
-        f"🎓 *Привет! Я бот-расписание* 🎓\n\n"
-        f"📅 *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
-        f"👇 *Нажми на кнопку ниже, чтобы узнать расписание:*"
+        f" *Бот-расписание* \n\n"
+        f" *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
+        f" *Нажми на кнопку ниже, чтобы узнать расписание:*"
     )
 
     await update.message.reply_text(
@@ -406,15 +406,15 @@ async def show_week(query, weeks_offset: int = 0):
     parity, week_name, week_emoji, _, week_label = get_week_info_for_offset(weeks_offset)
 
     if weeks_offset == 0:
-        title = f"📅 *Расписание* ({week_name} {week_emoji} неделя)"
+        title = f" *Расписание* ({week_name} {week_emoji} неделя)"
     elif weeks_offset == 1:
-        title = f"⏩ *Расписание на следующую неделю* ({week_name} {week_emoji})"
+        title = f" *Расписание на следующую неделю* ({week_name} {week_emoji})"
     else:
-        title = f"📅 *Расписание* ({week_label}, {week_name} {week_emoji})"
+        title = f" *Расписание* ({week_label}, {week_name} {week_emoji})"
 
     response = f"{title}\n\n"
     response += "╔══════════════════════════════════════╗\n"
-    response += "║        📊 *НЕДЕЛЬНОЕ РАСПИСАНИЕ*      ║\n"
+    response += "║         *НЕДЕЛЬНОЕ РАСПИСАНИЕ*      ║\n"
     response += "╚══════════════════════════════════════╝\n\n"
 
     for day_num in range(7):
@@ -436,7 +436,7 @@ async def show_current_week(query):
     _, next_week_name, next_week_emoji, next_parity_ru, _ = get_week_info_for_offset(1)
 
     await query.edit_message_text(
-        f"📅 *Информация о неделях*\n\n"
+        f" *Информация о неделях*\n\n"
         f"┌─────────────────────────────────────┐\n"
         f"│ *Текущая неделя:*                   │\n"
         f"│   {week_name} {week_emoji} ({parity_ru})\n"
@@ -444,10 +444,10 @@ async def show_current_week(query):
         f"│ *Следующая неделя:*                 │\n"
         f"│   {next_week_name} {next_week_emoji} ({next_parity_ru})\n"
         f"└─────────────────────────────────────┘\n\n"
-        f"📖 *Пояснение:*\n"
-        f"• *Числитель* (🧮) — чётная неделя\n"
-        f"• *Знаменатель* (📊) — нечётная неделя\n\n"
-        f"🔄 Расписание автоматически меняется\n"
+        f" *Пояснение:*\n"
+        f"• *Числитель* () — чётная неделя\n"
+        f"• *Знаменатель* () — нечётная неделя\n\n"
+        f" Расписание автоматически меняется\n"
         f"   каждую неделю от 2 марта.",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard()
@@ -472,9 +472,9 @@ async def show_help(query):
         "  посмотреть расписание на конкретный день\n"
         "• Можно смотреть расписание на\n"
         "  следующую неделю заранее!\n\n"
-        "🔄 *Система недель:*\n"
-        "• Чётная = *Числитель* 🧮\n"
-        "• Нечётная = *Знаменатель* 📊",
+        " *Система недель:*\n"
+        "• Чётная = *Числитель* \n"
+        "• Нечётная = *Знаменатель* ",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard()
     )
@@ -490,7 +490,7 @@ async def show_day(query, day_num: int, weeks_offset: int = 0):
     if weeks_offset == 0:
         header = f"{day_emoji} *{day_name}* ({week_name} {week_emoji} неделя)"
     elif weeks_offset == 1:
-        header = f"⏩ {day_emoji} *{day_name}* (след. неделя, {week_name} {week_emoji})"
+        header = f" {day_emoji} *{day_name}* (след. неделя, {week_name} {week_emoji})"
     else:
         header = f"{day_emoji} *{day_name}* ({week_label}, {week_name} {week_emoji})"
 
@@ -539,9 +539,9 @@ async def schedule_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def schedule_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parity, week_name, week_emoji, _ = get_current_week_info()
-    response = f"📅 *Расписание* ({week_name} {week_emoji} неделя)\n\n"
+    response = f" *Расписание* ({week_name} {week_emoji} неделя)\n\n"
     response += "╔══════════════════════════════════════╗\n"
-    response += "║        📊 *НЕДЕЛЬНОЕ РАСПИСАНИЕ*      ║\n"
+    response += "║         *НЕДЕЛЬНОЕ РАСПИСАНИЕ*      ║\n"
     response += "╚══════════════════════════════════════╝\n\n"
 
     for day_num in range(7):
@@ -592,7 +592,7 @@ async def schedule_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def current_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, week_name, week_emoji, parity_ru = get_current_week_info()
     await update.message.reply_text(
-        f"📅 *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
+        f" *Текущая неделя:* {week_name} {week_emoji} ({parity_ru})\n\n"
         f"Расписание автоматически меняется каждую неделю.",
         parse_mode="Markdown",
         reply_markup=get_days_keyboard(0)
