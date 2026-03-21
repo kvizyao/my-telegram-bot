@@ -28,10 +28,10 @@ def get_week_parity_for_date(target_date: date = None) -> str:
     if target_date is None:
         target_date = date.today()
 
-    start_date = date(target_date.year, 3, 2)
+    start_date = date(target_date.year, 2, 23)
 
     if target_date < start_date:
-        start_date = date(target_date.year - 1, 3, 2)
+        start_date = date(target_date.year - 1, 2, 23)
 
     delta = (target_date - start_date).days
     week_number = delta // 7
