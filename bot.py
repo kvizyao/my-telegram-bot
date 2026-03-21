@@ -208,9 +208,9 @@ def format_week_simple(parity: str) -> str:
 def get_week_type_info(parity: str) -> tuple:
     """Возвращает информацию о типе недели"""
     if parity == "numerator":
-        return "Числитель", "🧮", "чётная"
+        return "Знаменатель", "🧮", "нечётная"
     else:
-        return "Знаменатель", "📊", "нечётная"
+        return "Числитель", "📊", "чётная"
 
 
 def get_current_week_info() -> tuple:
