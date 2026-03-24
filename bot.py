@@ -546,6 +546,16 @@ async def current_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# --- Простой эндпоинт для Keep-Alive ---
+async def keep_alive(request: Request) -> PlainTextResponse:
+    """
+    Эндпоинт для поддержания бота в активном состоянии.
+    Его будет пинговать cron-job.org каждые 10-14 минут.
+    """
+    logging.info("Keep-alive ping received")
+    return PlainTextResponse("✅ Bot is alive! Время: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
 # --- Главная функция ---
 async def main():
     app = Application.builder().token(BOT_TOKEN).updater(None).build()
@@ -570,9 +580,11 @@ async def main():
     async def healthcheck(request: Request) -> PlainTextResponse:
         return PlainTextResponse("OK")
 
+    # Создаем Starlette приложение с добавленным эндпоинтом для keep-alive
     starlette_app = Starlette(routes=[
         Route("/telegram", telegram_webhook, methods=["POST"]),
         Route("/healthcheck", healthcheck, methods=["GET"]),
+        Route("/", keep_alive, methods=["GET"]),  # 👈 ДОБАВЛЕННЫЙ ЭНДПОИНТ ДЛЯ KEEP-ALIVE
     ])
 
     import uvicorn
